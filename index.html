@@ -1,0 +1,1008 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Strategic Command</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Roboto Mono', monospace;
+            touch-action: manipulation; /* Improves touch responsiveness on mobile */
+        }
+        
+        #game-container {
+            display: grid;
+            grid-template-columns: auto 1fr auto;
+            grid-template-rows: auto 1fr auto;
+            gap: 4px;
+            width: 100%;
+            max-width: 500px; /* Max width for the core board area */
+            margin: auto;
+        }
+
+        #game-board {
+            grid-column: 2 / 3;
+            grid-row: 2 / 3;
+            aspect-ratio: 9 / 12; /* Maintain board proportions */
+        }
+        
+        .coord {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.75rem;
+            color: #9ca3af; /* gray-400 */
+        }
+        #col-labels { grid-column: 2 / 3; grid-row: 1 / 2; display: flex; }
+        #col-labels-bottom { grid-column: 2 / 3; grid-row: 3 / 4; display: flex; }
+        #row-labels { grid-column: 1 / 2; grid-row: 2 / 3; display: flex; flex-direction: column; }
+        #row-labels-right { grid-column: 3 / 4; grid-row: 2 / 3; display: flex; flex-direction: column; }
+        .coord-item { flex: 1; display:flex; align-items:center; justify-content:center; }
+
+
+        .cell { position: relative; }
+        .cell-content {
+            position: absolute; top:0; left:0; right:0; bottom:0;
+            display: flex; align-items: center; justify-content: center;
+            font-size: clamp(14px, 3.5vw, 24px); /* Responsive font size */
+            font-weight: bold;
+            transition: transform 0.3s ease-in-out;
+            z-index: 10;
+        }
+
+        /* Unit & Terrain Styling */
+        .player-unit { background-color: #3b82f6; color: white; border-radius: 0.25rem; } /* blue-500 */
+        .rival-unit { background-color: #ef4444; color: white; border-radius: 0.25rem; } /* red-500 */
+        .castle { background-color: #facc15; } /* yellow-400 */
+        .mine { background-color: #4b5563; } /* gray-600 */
+        .water { background-color: #0e7490; } /* cyan-700 */
+        .selected { box-shadow: 0 0 0 4px #10b981 inset; z-index: 15; } /* emerald-500 */
+        
+        /* Animation for valid moves */
+        @keyframes pulse {
+            0%, 100% { background-color: rgba(16, 185, 129, 0.3); }
+            50% { background-color: rgba(16, 185, 129, 0.5); }
+        }
+        .valid-move { animation: pulse 1.5s infinite; cursor: pointer; }
+        .attack-move { background-color: rgba(239, 68, 68, 0.5); cursor: pointer; }
+        .cheated-reveal { opacity: 0.6; }
+
+        /* Turn Indicator Styling */
+        .turn-active {
+            box-shadow: 0 0 10px 3px #10b981; /* emerald-500 */
+            border: 1px solid #10b981;
+        }
+
+        /* Modal Styling */
+        .modal-overlay {
+            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0, 0, 0, 0.6); display: flex;
+            align-items: center; justify-content: center; z-index: 100;
+        }
+        .modal-content {
+            background: white; padding: 2rem; border-radius: 0.5rem; text-align: left;
+            max-width: 90%; width: 500px;
+        }
+        
+        #log-container { height: 200px; }
+        .gemini-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        /* Tab Interface Styling */
+        .tab { padding: 0.5rem 1rem; cursor: pointer; border-bottom: 2px solid transparent; }
+        .tab-active { border-bottom-color: #3b82f6; color: #3b82f6; } /* blue-500 */
+        .tab-content { display: none; }
+        .tab-content-active { display: block; }
+
+    </style>
+</head>
+<body class="bg-gray-800 text-white flex flex-col items-center min-h-screen p-2 sm:p-4">
+
+    <div class="w-full max-w-7xl mx-auto flex flex-col lg:flex-row gap-4">
+        <!-- Left Panel: Game Board and Info -->
+        <div class="flex-grow">
+            <div class="flex justify-between items-center mb-2 p-2 bg-gray-700 rounded-lg flex-wrap gap-2">
+                <div>
+                    <h1 class="text-xl sm:text-2xl font-bold">Strategic Command</h1>
+                    <p id="turn-indicator" class="text-lg text-blue-400">Player's Turn</p>
+                </div>
+                 <div class="flex items-center gap-2 flex-wrap">
+                    <label for="ai-difficulty" class="text-sm">Rival AI:</label>
+                    <select id="ai-difficulty" class="bg-gray-600 text-white rounded p-1 text-sm">
+                        <option value="low">Low</option>
+                        <option value="medium" selected>Medium</option>
+                        <option value="high">High</option>
+                    </select>
+                     <label for="sim-speed" class="text-sm">Speed:</label>
+                    <select id="sim-speed" class="bg-gray-600 text-white rounded p-1 text-sm">
+                        <option value="1000">1x</option>
+                        <option value="500">2x</option>
+                        <option value="250">4x</option>
+                    </select>
+                    <button id="simulate-button" class="bg-purple-500 hover:bg-purple-600 text-white font-bold py-2 px-4 rounded-lg transition-colors text-sm gemini-btn">Simulate</button>
+                    <button id="reset-button" class="bg-indigo-500 hover:bg-indigo-600 text-white font-bold py-2 px-4 rounded-lg transition-colors">New Game</button>
+                </div>
+            </div>
+            
+            <div id="game-container">
+                <div id="col-labels" class="coord"></div>
+                <div id="row-labels" class="coord"></div>
+                <div id="game-board" class="w-full bg-gray-900 grid grid-cols-9 border-2 border-gray-600 rounded-lg overflow-hidden">
+                    <!-- Cells generated by JS -->
+                </div>
+                <div id="row-labels-right" class="coord"></div>
+                <div id="col-labels-bottom" class="coord"></div>
+            </div>
+             <div id="message-area" class="mt-2 text-center p-2 bg-gray-700 rounded-lg text-lg h-auto min-h-[3rem] flex items-center justify-center">
+                Select a unit to move.
+            </div>
+            <div class="mt-2 text-center">
+                <button id="advice-button" class="bg-teal-500 hover:bg-teal-600 text-white font-bold py-2 px-4 rounded-lg transition-colors gemini-btn">Get Advice ✨</button>
+            </div>
+        </div>
+
+        <!-- Right Panel: Tabs -->
+        <div class="w-full lg:w-80 flex-shrink-0 bg-gray-700 p-3 rounded-lg">
+            <div class="flex border-b border-gray-500 mb-2">
+                <div id="tab-status" class="tab tab-active">Status/Log</div>
+                <div id="tab-reference" class="tab">Reference</div>
+                <div id="tab-setup" class="tab">Setup</div>
+            </div>
+            <!-- Status/Log Content -->
+            <div id="tab-content-status" class="tab-content tab-content-active">
+                <h2 class="text-xl font-bold mb-2">Status</h2>
+                <div class="grid grid-cols-2 gap-2 mb-3 text-lg">
+                    <div id="player-status-panel" class="text-center bg-gray-800 p-2 rounded-lg transition-all">
+                        <span class="text-blue-400 font-bold">Player Units</span>
+                        <p id="player-unit-count" class="text-2xl">0</p>
+                    </div>
+                    <div id="rival-status-panel" class="text-center bg-gray-800 p-2 rounded-lg transition-all">
+                        <span class="text-red-400 font-bold">Rival Units</span>
+                        <p id="rival-unit-count" class="text-2xl">0</p>
+                    </div>
+                </div>
+
+                <div class="flex justify-between items-center mb-2">
+                     <h2 class="text-xl font-bold">Move Log</h2>
+                     <button id="report-button" class="bg-orange-500 hover:bg-orange-600 text-white font-bold py-1 px-2 rounded-lg transition-colors text-xs gemini-btn">Report ✨</button>
+                </div>
+                <div id="log-container" class="bg-gray-800 rounded p-2 overflow-y-auto text-sm space-y-1"></div>
+            </div>
+            <!-- Reference Content -->
+            <div id="tab-content-reference" class="tab-content">
+                 <h2 class="text-xl font-bold mb-2">Unit Reference</h2>
+                 <p class="text-sm mb-4">This diagram shows the named sides of a unit for rule reference.</p>
+                 <div class="space-y-4">
+                     <!-- Rival Unit -->
+                     <div class="bg-gray-800 p-2 rounded-lg text-center text-xs">
+                        <div class="font-bold text-red-400 mb-2">Rival Unit</div>
+                        <div class="mb-1">Back</div>
+                        <div class="flex items-center justify-center gap-1">
+                            <div>Left</div>
+                            <div class="w-12 h-12 bg-red-500 flex items-center justify-center font-bold text-lg rounded">R</div>
+                            <div>Right</div>
+                        </div>
+                        <div class="mt-1 font-bold text-green-400">Front</div>
+                     </div>
+                     <!-- Player Unit -->
+                     <div class="bg-gray-800 p-2 rounded-lg text-center text-xs">
+                        <div class="font-bold text-blue-400 mb-2">Player Unit</div>
+                        <div class="mb-1 font-bold text-green-400">Front</div>
+                        <div class="flex items-center justify-center gap-1">
+                            <div>Left</div>
+                            <div class="w-12 h-12 bg-blue-500 flex items-center justify-center font-bold text-lg rounded">P</div>
+                            <div>Right</div>
+                        </div>
+                        <div class="mt-1">Back</div>
+                     </div>
+                 </div>
+            </div>
+            <!-- Setup Content -->
+            <div id="tab-content-setup" class="tab-content">
+                <h2 class="text-xl font-bold mb-2">Army Composition</h2>
+                <div id="army-setup-form" class="space-y-2 text-sm">
+                    <!-- Inputs will be generated here -->
+                </div>
+                <div class="mt-3 pt-3 border-t border-gray-500 text-sm">
+                    <p>Total Units: <span id="setup-total-units">0</span> / 35</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal for game over and Gemini responses -->
+    <div id="modal" class="modal-overlay hidden">
+        <div class="modal-content text-gray-800">
+            <h2 id="modal-title" class="text-3xl font-bold mb-4 text-center">Victory!</h2>
+            <div id="modal-body" class="text-base mb-6 prose max-w-full"></div>
+            <button id="modal-close-button" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-lg w-full">Close</button>
+        </div>
+    </div>
+    
+    <script>
+    // --- GAME CONFIGURATION AND CONSTANTS ---
+    const ROWS = 12;
+    const COLS = 9;
+    const PLAYER_ID = 'player';
+    const RIVAL_ID = 'rival';
+
+    const UNITS = {
+        CASTLE: { name: 'Castle', symbol: '🏰', level: 0, immobile: true, id: 'castle' },
+        MINE: { name: 'Mine', symbol: '💣', level: 99, immobile: true, id: 'mine' },
+        WATER: { name: 'Water', symbol: '🌊', level: 1000, immobile: true, id: 'water' },
+        ENGINEER: { name: 'Engineer', symbol: 'E', level: 1, id: 'engineer' },
+        SCOUT: { name: 'Scout', symbol: 'S', level: 1, id: 'scout' },
+        KNIGHT_2: { name: 'Knight', symbol: 'K2', level: 2, id: 'knight_2' },
+        KNIGHT_3: { name: 'Knight', symbol: 'K3', level: 3, id: 'knight_3' },
+        KNIGHT_4: { name: 'Knight', symbol: 'K4', level: 4, id: 'knight_4' },
+        KNIGHT_5: { name: 'Knight', symbol: 'K5', level: 5, id: 'knight_5' },
+        KNIGHT_6: { name: 'Knight', symbol: 'K6', level: 6, id: 'knight_6' },
+        KNIGHT_7: { name: 'Knight', symbol: 'K7', level: 7, id: 'knight_7' },
+        KNIGHT_8: { name: 'Knight', symbol: 'K8', level: 8, id: 'knight_8' },
+        KNIGHT_9: { name: 'Knight', symbol: 'K9', level: 9, id: 'knight_9' },
+        MORTIR: { name: 'Mortir', symbol: 'M10', level: 10, id: 'mortir' },
+    };
+
+    const DEFAULT_ARMY_COMPOSITION = [
+        { unit: UNITS.CASTLE, quantity: 1 }, { unit: UNITS.MINE, quantity: 4 },
+        { unit: UNITS.ENGINEER, quantity: 4 }, { unit: UNITS.SCOUT, quantity: 3 },
+        { unit: UNITS.KNIGHT_2, quantity: 4 }, { unit: UNITS.KNIGHT_3, quantity: 4 },
+        { unit: UNITS.KNIGHT_4, quantity: 3 }, { unit: UNITS.KNIGHT_5, quantity: 3 },
+        { unit: UNITS.KNIGHT_6, quantity: 3 }, { unit: UNITS.KNIGHT_7, quantity: 2 },
+        { unit: UNITS.KNIGHT_8, quantity: 2 }, { unit: UNITS.KNIGHT_9, quantity: 2 },
+        { unit: UNITS.MORTIR, quantity: 1 },
+    ];
+
+    // --- DOM ELEMENT REFERENCES ---
+    const dom = {
+        gameBoard: document.getElementById('game-board'),
+        turnIndicator: document.getElementById('turn-indicator'),
+        messageArea: document.getElementById('message-area'),
+        resetButton: document.getElementById('reset-button'),
+        simulateButton: document.getElementById('simulate-button'),
+        adviceButton: document.getElementById('advice-button'),
+        reportButton: document.getElementById('report-button'),
+        modal: document.getElementById('modal'),
+        modalTitle: document.getElementById('modal-title'),
+        modalBody: document.getElementById('modal-body'),
+        modalCloseButton: document.getElementById('modal-close-button'),
+        logContainer: document.getElementById('log-container'),
+        playerUnitCountEl: document.getElementById('player-unit-count'),
+        rivalUnitCountEl: document.getElementById('rival-unit-count'),
+        playerStatusPanel: document.getElementById('player-status-panel'),
+        rivalStatusPanel: document.getElementById('rival-status-panel'),
+        aiDifficultySelector: document.getElementById('ai-difficulty'),
+        simSpeedSelector: document.getElementById('sim-speed'),
+        armySetupForm: document.getElementById('army-setup-form'),
+        setupTotalUnitsEl: document.getElementById('setup-total-units'),
+    };
+
+    // --- CENTRAL GAME STATE ---
+    let gameState = {};
+
+    // --- ENGINE CORE: STATE MANAGEMENT & RENDERING ---
+
+    /**
+     * Resets the game state to its initial configuration.
+     */
+    function resetGameState() {
+        gameState = {
+            grid: Array(ROWS).fill(null).map(() => Array(COLS).fill(null)),
+            currentPlayer: PLAYER_ID,
+            selectedUnit: null,
+            gameOver: false,
+            simulationActive: false,
+            isAnimating: false,
+            cheatModeActive: false,
+            aiDifficulty: dom.aiDifficultySelector.value,
+            turnNumber: 1,
+        };
+    }
+
+    /**
+     * The single source of truth for drawing the UI based on the current gameState.
+     */
+    function render() {
+        renderBoard();
+        renderUI();
+    }
+    
+    /**
+     * Renders the game board cells, units, selection, and valid moves.
+     */
+    function renderBoard() {
+        dom.gameBoard.innerHTML = '';
+        const validMoves = gameState.selectedUnit ? getValidMoves(gameState.selectedUnit) : [];
+        
+        for (let r = 0; r < ROWS; r++) {
+            for (let c = 0; c < COLS; c++) {
+                const cell = document.createElement('div');
+                cell.className = 'cell border border-gray-700';
+                cell.dataset.r = r;
+                cell.dataset.c = c;
+
+                const cellContent = document.createElement('div');
+                cellContent.className = 'cell-content';
+                const unit = gameState.grid[r][c];
+
+                if (unit) {
+                    const isPlayerViewRevealed = unit.revealed || unit.owner === PLAYER_ID || gameState.simulationActive || gameState.cheatModeActive;
+                    cellContent.textContent = isPlayerViewRevealed ? unit.symbol : '❓';
+                    if (gameState.cheatModeActive && unit.owner === RIVAL_ID && !unit.revealed) {
+                        cellContent.classList.add('cheated-reveal');
+                    }
+                    cell.classList.add(unit.owner === PLAYER_ID ? 'player-unit' : 'rival-unit');
+                    if(isPlayerViewRevealed) {
+                        if (unit.name === 'Castle') cell.classList.add('castle');
+                        if (unit.name === 'Mine') cell.classList.add('mine');
+                    }
+                     if(unit.name === 'Water') cell.classList.add('water');
+                }
+                
+                if (gameState.selectedUnit && gameState.selectedUnit.r === r && gameState.selectedUnit.c === c) {
+                    cell.classList.add('selected');
+                }
+
+                const move = validMoves.find(m => m.r === r && m.c === c);
+                if (move) {
+                    cell.classList.add(move.isAttack ? 'attack-move' : 'valid-move');
+                }
+
+                cell.appendChild(cellContent);
+                dom.gameBoard.appendChild(cell);
+            }
+        }
+    }
+    
+    /**
+     * Renders all other UI elements like indicators, counts, and messages.
+     */
+    function renderUI() {
+        // Unit counts
+        let pCount = 0, rCount = 0;
+        for (const row of gameState.grid) for (const unit of row) {
+            if (unit && !unit.immobile && unit.name !== 'Water') {
+                if (unit.owner === PLAYER_ID) pCount++; else rCount++;
+            }
+        }
+        dom.playerUnitCountEl.textContent = pCount;
+        dom.rivalUnitCountEl.textContent = rCount;
+
+        // Turn indicator
+        if (gameState.gameOver) {
+            dom.turnIndicator.textContent = "Game Over";
+            dom.turnIndicator.className = "text-lg text-yellow-400";
+            dom.playerStatusPanel.classList.remove('turn-active');
+            dom.rivalStatusPanel.classList.remove('turn-active');
+        } else {
+            dom.turnIndicator.textContent = gameState.currentPlayer === PLAYER_ID ? "Player's Turn" : "Rival's Turn";
+            dom.turnIndicator.className = `text-lg ${gameState.currentPlayer === PLAYER_ID ? 'text-blue-400' : 'text-red-400'}`;
+            dom.playerStatusPanel.classList.toggle('turn-active', gameState.currentPlayer === PLAYER_ID);
+            dom.rivalStatusPanel.classList.toggle('turn-active', gameState.currentPlayer === RIVAL_ID);
+        }
+    }
+    
+    /**
+     * Displays a message in the main message area.
+     * @param {string} text - The message to display.
+     */
+    function showMessage(text) {
+        dom.messageArea.textContent = text;
+    }
+
+    /**
+     * Adds a message to the scrolling log panel.
+     * @param {string} message - The message content (HTML is allowed).
+     * @param {string} [type='info'] - 'combat' or 'reveal' for special styling.
+     */
+    function logMessage(message, type = 'info') {
+        const p = document.createElement('p');
+        p.innerHTML = message;
+        if(type === 'combat') p.className = 'text-yellow-400';
+        if(type === 'reveal') p.className = 'text-cyan-400';
+        dom.logContainer.appendChild(p);
+        dom.logContainer.scrollTop = dom.logContainer.scrollHeight;
+    }
+
+    // --- GAME ACTIONS & LOGIC ---
+
+    /**
+     * The main entry point for starting a game.
+     * @param {boolean} isSimulation - Whether to start in AI vs AI mode.
+     */
+    function startGame(isSimulation = false) {
+        resetGameState();
+        gameState.simulationActive = isSimulation;
+        gameState.aiDifficulty = dom.aiDifficultySelector.value;
+        dom.logContainer.innerHTML = '';
+        
+        if (!setupBoardFromComposition()) return;
+
+        setControlsState(isSimulation);
+        
+        if (isSimulation) {
+            logMessage('--- AI vs AI SIMULATION STARTED ---');
+            showMessage('Simulation running...');
+            setTimeout(runAITurn, 1000);
+        } else {
+            logMessage(`New game started. AI is ${dom.aiDifficultySelector.value}.`);
+            showMessage("Your turn. Select a unit.");
+        }
+        
+        dom.modal.classList.add('hidden');
+        render();
+    }
+    
+    /**
+     * Selects a unit, updating the game state.
+     * @param {number} r - Row of the unit.
+     * @param {number} c - Column of the unit.
+     */
+    function selectUnit(r, c) {
+        gameState.selectedUnit = gameState.grid[r][c];
+        showMessage(`Selected ${gameState.selectedUnit.name}. Choose a destination.`);
+        render();
+    }
+
+    /**
+     * Deselects the current unit.
+     */
+    function deselectUnit() {
+        gameState.selectedUnit = null;
+        showMessage("Your turn. Select a unit.");
+        render();
+    }
+    
+    /**
+     * Core logic for attempting a move, which leads to combat or position change.
+     * @param {object} unit - The unit being moved.
+     * @param {object} move - The move object {r, c, isAttack, target}.
+     */
+    async function attemptMove(unit, move) {
+        gameState.isAnimating = true;
+        gameState.selectedUnit = null; // Deselect immediately
+        
+        // --- Animate the move ---
+        const fromCell = document.querySelector(`.cell[data-r='${unit.r}'][data-c='${unit.c}']`);
+        const toCell = document.querySelector(`.cell[data-r='${move.r}'][data-c='${move.c}']`);
+        const fromCellContent = fromCell.querySelector('.cell-content');
+        const fromRect = fromCell.getBoundingClientRect();
+        const toRect = toCell.getBoundingClientRect();
+        fromCellContent.style.transform = `translate(${toRect.left - fromRect.left}px, ${toRect.top - fromRect.top}px)`;
+        fromCellContent.style.zIndex = '20';
+        await new Promise(resolve => setTimeout(resolve, 300)); // Animation duration
+        
+        // --- Update State After Animation ---
+        const turnPrefix = gameState.currentPlayer === PLAYER_ID ? `${gameState.turnNumber}. ` : `${gameState.turnNumber}... `;
+        logMessage(`${turnPrefix}${unit.owner}'s ${unit.name}(${unit.symbol}) moves ${getCoordName(unit.r, unit.c)}→${getCoordName(move.r, move.c)}.`);
+        
+        if (move.isAttack) {
+            handleCombat(unit, move.target);
+        } else {
+            showMessage(`${unit.name} moved.`);
+            const fromR = unit.r, fromC = unit.c;
+            gameState.grid[move.r][move.c] = unit;
+            gameState.grid[fromR][fromC] = null;
+            unit.r = move.r; unit.c = move.c;
+        }
+
+        render(); // Render intermediate state post-move/combat
+        await new Promise(r => setTimeout(r, gameState.simulationActive ? 100 : 300));
+
+        await checkAdjacentCombat(); // Check for passive combat
+        
+        gameState.isAnimating = false;
+        
+        if (checkVictory()) return;
+        
+        switchTurn();
+    }
+    
+    /**
+     * Handles the logic for combat between two units.
+     * @param {object} attacker - The attacking unit.
+     * @param {object} defender - The defending unit.
+     */
+    function handleCombat(attacker, defender) {
+        const reveal = u => { 
+            if (!u.revealed) logMessage(`${gameState.turnNumber}. ${u.owner}'s unit at ${getCoordName(u.r,u.c)} is revealed as a ${u.name}!`, 'reveal'); 
+            u.revealed = u.aiRevealed = true; 
+            return `${u.name}(${u.symbol})`; 
+        };
+        const attackerId = reveal(attacker), defenderId = reveal(defender);
+        logMessage(`${gameState.turnNumber}. ${attackerId} attacks ${defenderId}!`, 'combat');
+        
+        let msg = '', defeated = [];
+        const { r: attR, c: attC } = attacker;
+        const { r: defR, c: defC } = defender;
+
+        if (defender.name === 'Mine') {
+            if (attacker.name === 'Engineer') {
+                msg = 'Mine defused!'; 
+                defeated.push(defender); 
+                gameState.grid[defR][defC] = attacker; 
+                gameState.grid[attR][attC] = null; 
+                attacker.r = defR; attacker.c = defC;
+            } else {
+                msg = `${attackerId} destroyed by mine!`; 
+                defeated.push(attacker); 
+                gameState.grid[attR][attC] = null;
+            }
+        } else if (defender.name === 'Castle') {
+            msg = 'Castle captured!'; 
+            gameState.gameOver = true;
+            gameState.grid[defR][defC] = attacker;
+            gameState.grid[attR][attC] = null;
+            attacker.r = defR; attacker.c = defC;
+        } else if (attacker.level > defender.level) {
+            msg = `${defenderId} defeated.`; 
+            defeated.push(defender);
+            gameState.grid[defR][defC] = attacker;
+            gameState.grid[attR][attC] = null;
+            attacker.r = defR; attacker.c = defC;
+        } else if (attacker.level < defender.level) {
+            msg = `${attackerId} defeated.`; 
+            defeated.push(attacker);
+            gameState.grid[attR][attC] = null;
+        } else {
+            msg = 'Both units destroyed!'; 
+            defeated.push(attacker, defender);
+            gameState.grid[attR][attC] = null;
+            gameState.grid[defR][defC] = null;
+        }
+        
+        showMessage(msg); 
+        defeated.forEach(showDefeatedUnit);
+    }
+
+    /**
+     * Checks for and resolves passive combat between adjacent rival/player units.
+     */
+    async function checkAdjacentCombat() {
+        const pairs = [];
+        for (let r = 0; r < ROWS - 1; r++) for (let c = 0; c < COLS; c++) {
+            const unitA = gameState.grid[r][c], unitB = gameState.grid[r + 1][c];
+            if (unitA && unitB && unitA.owner === RIVAL_ID && unitB.owner === PLAYER_ID &&
+                !unitA.immobile && !unitB.immobile) {
+                pairs.push([unitA, unitB]);
+            }
+        }
+        if (pairs.length === 0) return;
+        
+        showMessage('Passive combat occurring...');
+        await new Promise(r => setTimeout(r, 500));
+        
+        let combatHappened = false;
+        for (const [unitA, unitB] of pairs) {
+            if (!gameState.grid[unitA.r][unitA.c] || !gameState.grid[unitB.r][unitB.c]) continue; // One was already destroyed
+            
+            const reveal = u => { if(!u.revealed) u.revealed = u.aiRevealed = true; return `${u.name}(${u.symbol})`; };
+            const idA = reveal(unitA), idB = reveal(unitB);
+            
+            let log, defeated = [];
+            if (unitA.level > unitB.level) { defeated.push(unitB); log = `Adjacent: ${idA} defeats ${idB}!`; }
+            else if (unitB.level > unitA.level) { defeated.push(unitA); log = `Adjacent: ${idB} defeats ${idA}!`; }
+            else { defeated.push(unitA, unitB); log = `Adjacent: ${idA} & ${idB} perish!`; }
+            
+            logMessage(`${gameState.turnNumber}. ${log}`, 'combat');
+            defeated.forEach(u => { showDefeatedUnit(u); gameState.grid[u.r][u.c] = null; });
+            combatHappened = true;
+        }
+        
+        if(combatHappened) {
+            showMessage('Passive combat resolved!');
+            render();
+            await new Promise(r => setTimeout(r, 1200));
+        }
+    }
+    
+    /**
+     * Switches the current turn and triggers AI if necessary.
+     */
+    function switchTurn() {
+        gameState.currentPlayer = (gameState.currentPlayer === PLAYER_ID) ? RIVAL_ID : PLAYER_ID;
+        if (gameState.currentPlayer === PLAYER_ID) {
+            gameState.turnNumber++;
+        }
+        renderUI();
+
+        if (gameState.gameOver) return;
+
+        if (gameState.simulationActive) {
+            setTimeout(runAITurn, parseInt(dom.simSpeedSelector.value));
+        } else if (gameState.currentPlayer === RIVAL_ID) {
+            showMessage("Rival's turn...");
+            setTimeout(runAITurn, 1000);
+        } else {
+            showMessage("Your turn. Select a unit.");
+        }
+    }
+
+    // --- INPUT HANDLING ---
+
+    /**
+     * Main handler for all clicks on the game board. It translates clicks into game actions.
+     */
+    function handleCellClick(e) {
+        if (gameState.gameOver || gameState.isAnimating || 
+            (gameState.currentPlayer !== PLAYER_ID && !gameState.simulationActive)) return;
+            
+        const cell = e.target.closest('.cell');
+        if (!cell) return;
+
+        const r = parseInt(cell.dataset.r);
+        const c = parseInt(cell.dataset.c);
+        const unitAtClick = gameState.grid[r][c];
+
+        if (gameState.selectedUnit) {
+            const move = getValidMoves(gameState.selectedUnit).find(m => m.r === r && m.c === c);
+            if (move) {
+                attemptMove(gameState.selectedUnit, move);
+            } else if (unitAtClick && unitAtClick.owner === PLAYER_ID && !unitAtClick.immobile) {
+                selectUnit(r, c); // Switch selection
+            } else {
+                deselectUnit();
+            }
+        } else if (unitAtClick && unitAtClick.owner === PLAYER_ID) {
+            if (!unitAtClick.immobile) {
+                selectUnit(r, c);
+            } else {
+                showMessage(`${unitAtClick.name} cannot move.`);
+            }
+        }
+    }
+
+    // --- UTILITIES & HELPERS ---
+    
+    /**
+     * Creates a new unit object.
+     * @param {object} unitDef - The unit definition from the UNITS constant.
+     * @param {string} owner - The owner of the unit ('player' or 'rival').
+     * @returns {object} The new unit object.
+     */
+    const createUnit = (unitDef, owner) => ({ ...unitDef, owner, revealed: false, aiRevealed: false });
+
+    /**
+     * Shuffles an array in place.
+     * @param {Array} a - The array to shuffle.
+     */
+    const shuffleArray = a => { for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];} };
+    
+    /**
+     * Converts row/column to algebraic notation.
+     * @param {number} r - Row index.
+     * @param {number} c - Column index.
+     * @returns {string} Coordinate name (e.g., "A12").
+     */
+    const getCoordName = (r,c) => `${String.fromCharCode(65+c)}${ROWS-r}`;
+
+    /**
+     * Creates a temporary element to animate a defeated unit fading out.
+     * @param {object} unit - The unit that was defeated.
+     */
+    function showDefeatedUnit(unit) {
+        if (!unit) return;
+        const boardRect = dom.gameBoard.getBoundingClientRect();
+        if (!boardRect.width || !boardRect.height) return; // Don't run if board isn't visible
+
+        const cellWidth = boardRect.width / COLS;
+        const cellHeight = boardRect.height / ROWS;
+
+        const tempUnit = document.createElement('div');
+        tempUnit.className = `cell-content ${unit.owner === PLAYER_ID ? 'player-unit' : 'rival-unit'}`;
+        tempUnit.textContent = unit.symbol;
+        tempUnit.style.cssText = `position:fixed; left:${boardRect.left + unit.c * cellWidth}px; top:${boardRect.top + unit.r * cellHeight}px; width:${cellWidth}px; height:${cellHeight}px; z-index:50; transition:opacity 0.8s,transform 0.8s; border-radius: 0.25rem;`;
+        document.body.appendChild(tempUnit);
+        
+        requestAnimationFrame(()=> { 
+            tempUnit.style.opacity = '0'; 
+            tempUnit.style.transform = 'scale(0.5)'; 
+        });
+        setTimeout(() => tempUnit.remove(), 800);
+    }
+    
+    /**
+     * Creates the coordinate labels around the board.
+     */
+    function setupCoordinates() {
+        const colLabelsTop = document.getElementById('col-labels');
+        const colLabelsBottom = document.getElementById('col-labels-bottom');
+        const rowLabelsLeft = document.getElementById('row-labels');
+        const rowLabelsRight = document.getElementById('row-labels-right');
+        
+        colLabelsTop.innerHTML = '';
+        colLabelsBottom.innerHTML = '';
+        rowLabelsLeft.innerHTML = '';
+        rowLabelsRight.innerHTML = '';
+
+        for (let c = 0; c < COLS; c++) {
+            const char = String.fromCharCode(65 + c);
+            colLabelsTop.innerHTML += `<div class="coord-item">${char}</div>`;
+            colLabelsBottom.innerHTML += `<div class="coord-item">${char}</div>`;
+        }
+        for (let r = 0; r < ROWS; r++) {
+            const num = ROWS - r;
+            rowLabelsLeft.innerHTML += `<div class="coord-item">${num}</div>`;
+            rowLabelsRight.innerHTML += `<div class="coord-item">${num}</div>`;
+        }
+    }
+    
+    /**
+     * Gets all valid moves for a given unit.
+     * @param {object} unit - The unit to calculate moves for.
+     * @returns {Array} A list of valid move objects.
+     */
+    function getValidMoves(unit) {
+        if (!unit || unit.immobile) return [];
+        const moves = [];
+        const { r, c, owner } = unit;
+        const directions = owner === PLAYER_ID ? [[-1, 0], [0, -1], [0, 1]] : [[1, 0], [0, -1], [0, 1]];
+
+        if (unit.name === 'Scout') {
+            for (const [dr, dc] of directions) {
+                for (let i = 1; ; i++) {
+                    const newR = r + dr * i, newC = c + dc * i;
+                    if (newR < 0 || newR >= ROWS || newC < 0 || newC >= COLS) break;
+                    const target = gameState.grid[newR][newC];
+                    if (target) {
+                        if (target.owner !== owner && target.name !== 'Water') moves.push({r: newR, c: newC, isAttack: true, target});
+                        break;
+                    }
+                    moves.push({ r: newR, c: newC, isAttack: false, target: null });
+                }
+            }
+        } else {
+            for (const [dr, dc] of directions) {
+                const newR = r + dr, newC = c + dc;
+                if (newR >= 0 && newR < ROWS && newC >= 0 && newC < COLS) {
+                    const target = gameState.grid[newR][newC];
+                    if (!target) moves.push({r: newR, c: newC, isAttack: false, target: null});
+                    else if (target.owner !== owner && target.name !== 'Water') moves.push({r: newR, c: newC, isAttack: true, target});
+                }
+            }
+        }
+        return moves;
+    }
+    
+    /**
+     * Checks if the game has been won and ends it if so.
+     * @returns {boolean} True if the game is over.
+     */
+    function checkVictory() {
+        let pCastle = false, rCastle = false, pUnits = false, rUnits = false;
+        for(const row of gameState.grid) for(const u of row) if(u) {
+            if(u.name === 'Castle') { if(u.owner === PLAYER_ID) pCastle=true; else rCastle=true; }
+            else if(!u.immobile && u.name !== 'Water') { if(u.owner === PLAYER_ID) pUnits=true; else rUnits=true; }
+        }
+        if(!rCastle) { endGame('Player Wins!', "Rival's castle has been captured!"); return true; }
+        if(!pCastle) { endGame('Rival Wins!', 'Your castle has been captured.'); return true; }
+        if(!rUnits && rCastle) { endGame('Player Wins!', 'All rival units have been eliminated.'); return true; }
+        if(!pUnits && pCastle) { endGame('Rival Wins!', 'All of your units have been eliminated.'); return true; }
+        return false;
+    }
+
+    /**
+     * Ends the game and displays the result.
+     * @param {string} title - The title of the modal.
+     * @param {string} bodyText - The body text of the modal.
+     * @param {boolean} [simStopped=false] - If the sim was halted manually.
+     */
+    function endGame(title, bodyText, simStopped = false) {
+        gameState.gameOver = true;
+        gameState.simulationActive = false;
+        if (!simStopped) {
+            logMessage(`--- GAME OVER: ${title} ---`);
+            dom.modalTitle.textContent = title; 
+            dom.modalBody.innerHTML = bodyText;
+            dom.modal.classList.remove('hidden');
+        }
+        setControlsState(false);
+        renderUI();
+    }
+    
+    // --- SETUP AND INITIALIZATION ---
+
+    /**
+     * Reads the 'Setup' tab form to get the player's desired army.
+     * @returns {Array|null} Army composition array or null if invalid.
+     */
+    function getArmyCompositionFromSetup() {
+        const composition = [];
+        let total = 0;
+        dom.armySetupForm.querySelectorAll('input').forEach(input => {
+            const quantity = parseInt(input.value) || 0;
+            total += quantity;
+            if (quantity > 0) {
+                const unitDef = Object.values(UNITS).find(u => u.id === input.dataset.unitId);
+                composition.push({ unit: unitDef, quantity });
+            }
+        });
+
+        if (total > 35) {
+            dom.modalTitle.textContent = "Invalid Army";
+            dom.modalBody.innerHTML = "Total unit count cannot exceed 35. Please adjust your army composition in the 'Setup' tab.";
+            dom.modal.classList.remove('hidden');
+            return null;
+        }
+        composition.unshift({ unit: UNITS.CASTLE, quantity: 1 });
+        return composition;
+    }
+    
+    /**
+     * Populates the board with units based on the setup form.
+     * @returns {boolean} True if setup was successful.
+     */
+    function setupBoardFromComposition() {
+        const armyComposition = getArmyCompositionFromSetup();
+        if (!armyComposition) return false;
+
+        const placeArmy = (owner, startRow, endRow) => {
+            const armyList = armyComposition.flatMap(comp => comp.unit.name === 'Castle' ? [] : Array(comp.quantity).fill(comp.unit));
+            shuffleArray(armyList);
+            
+            const castle = { ...createUnit(UNITS.CASTLE, owner), r: owner === PLAYER_ID ? ROWS - 1 : 0, c: Math.floor(Math.random() * COLS) };
+            gameState.grid[castle.r][castle.c] = castle;
+
+            const availableSpots = [];
+            for (let r = startRow; r < endRow; r++) for (let c = 0; c < COLS; c++) {
+                if (!gameState.grid[r][c]) availableSpots.push({r, c});
+            }
+            shuffleArray(availableSpots);
+            
+            for (let i = 0; i < armyList.length && i < availableSpots.length; i++) {
+                const spot = availableSpots[i];
+                gameState.grid[spot.r][spot.c] = { ...createUnit(armyList[i], owner), ...spot };
+            }
+        };
+
+        placeArmy(PLAYER_ID, ROWS - 4, ROWS);
+        placeArmy(RIVAL_ID, 0, 4);
+
+        const waterCoordinates = [
+            { r: 5, c: 0 }, { r: 6, c: 0 }, // A7, A6
+            { r: 5, c: 1 }, { r: 6, c: 1 }, // B7, B6
+            { r: 5, c: 3 }, { r: 6, c: 3 }, // D7, D6
+            { r: 5, c: 5 }, { r: 6, c: 5 }, // F7, F6
+            { r: 5, c: 7 }, { r: 6, c: 7 }, // H7, H6
+            { r: 5, c: 8 }, { r: 6, c: 8 }, // I7, I6
+        ];
+
+        for (const {r, c} of waterCoordinates) {
+            gameState.grid[r][c] = { ...UNITS.WATER, owner: 'neutral', r, c, revealed: true, aiRevealed: true };
+        }
+        
+        return true;
+    }
+    
+    // --- AI LOGIC ---
+    async function runAITurn() {
+        if (gameState.gameOver) return;
+        
+        const units = [];
+        for (const row of gameState.grid) for (const unit of row) {
+            if (unit && unit.owner === gameState.currentPlayer && !unit.immobile) {
+                units.push(unit);
+            }
+        }
+        
+        let bestMove = null, maxScore = -Infinity;
+        for (const unit of units) {
+            for (const move of getValidMoves(unit)) {
+                // This is a simplified scoring. A real AI would look ahead.
+                let score = Math.random() * 5; 
+                if (move.isAttack) {
+                    const target = move.target;
+                    const isTargetRevealed = target.aiRevealed;
+                    if (!isTargetRevealed) {
+                        score += (gameState.aiDifficulty === 'high') ? 20 : 10;
+                    } else {
+                         if (target.name === 'Castle') score = 1000;
+                         else if (target.name === 'Mine') score += (unit.name === 'Engineer') ? 50 : -50;
+                         else if (unit.level > target.level) score += 25 + (target.level * 2);
+                         else if (unit.level < target.level) score -= 30;
+                         else score += 5;
+                    }
+                } else { // non-attack move
+                    score += unit.r; // Simple incentive to move forward for Rival
+                    if (gameState.aiDifficulty === 'high' && unit.name === 'Scout') {
+                         const directions = [[-1,0],[1,0],[0,-1],[0,1]];
+                         for(const [dr, dc] of directions) {
+                            const neighbor = gameState.grid[move.r+dr]?.[move.c+dc];
+                            if(neighbor && neighbor.owner !== unit.owner && !neighbor.aiRevealed) {
+                                score += 25; // High reward for scouting unknown units
+                            }
+                        }
+                    }
+                }
+
+                if (score > maxScore) {
+                    maxScore = score;
+                    bestMove = { unit, move };
+                }
+            }
+        }
+        
+        if (bestMove) {
+            await attemptMove(bestMove.unit, bestMove.move);
+        } else {
+            switchTurn(); // No moves available
+        }
+    }
+    
+    // --- EVENT LISTENERS & INITIAL SETUP ---
+    
+    function setControlsState(isSimulating) {
+        dom.aiDifficultySelector.disabled = isSimulating;
+        dom.resetButton.disabled = isSimulating;
+        dom.adviceButton.disabled = isSimulating;
+        dom.reportButton.disabled = isSimulating;
+        dom.armySetupForm.querySelectorAll('input').forEach(i => i.disabled = isSimulating);
+        dom.simulateButton.textContent = isSimulating ? 'Stop' : 'Simulate';
+        dom.simulateButton.classList.toggle('bg-purple-500', !isSimulating);
+        dom.simulateButton.classList.toggle('hover:bg-purple-600', !isSimulating);
+        dom.simulateButton.classList.toggle('bg-red-500', isSimulating);
+        dom.simulateButton.classList.toggle('hover:bg-red-600', isSimulating);
+    }
+
+    function populateSetupForm() {
+        dom.armySetupForm.innerHTML = '';
+        DEFAULT_ARMY_COMPOSITION.forEach(item => {
+            if (item.unit.name === 'Castle') return;
+            const div = document.createElement('div');
+            div.className = 'flex justify-between items-center';
+            div.innerHTML = `<label for="setup-${item.unit.id}" class="truncate pr-2">${item.unit.name} (${item.unit.symbol})</label><input type="number" id="setup-${item.unit.id}" data-unit-id="${item.unit.id}" value="${item.quantity}" min="0" max="10" class="w-16 bg-gray-600 text-white p-1 rounded">`;
+            dom.armySetupForm.appendChild(div);
+        });
+        dom.armySetupForm.addEventListener('input', () => {
+             let total = 0;
+             dom.armySetupForm.querySelectorAll('input').forEach(input => total += parseInt(input.value) || 0);
+             dom.setupTotalUnitsEl.textContent = total;
+             const isInvalid = total > 35;
+             dom.setupTotalUnitsEl.classList.toggle('text-red-500', isInvalid);
+             dom.resetButton.disabled = isInvalid;
+             dom.simulateButton.disabled = isInvalid;
+        });
+        dom.setupTotalUnitsEl.textContent = DEFAULT_ARMY_COMPOSITION.reduce((acc, cv) => cv.unit.name === 'Castle' ? acc : acc + cv.quantity, 0);
+    }
+    
+    function stopSimulation() {
+        endGame('Simulation Halted', 'The simulation was stopped by the user.', true);
+    }
+
+    function setupUI() {
+        setupCoordinates();
+        populateSetupForm();
+        
+        // --- Event Listeners ---
+        dom.gameBoard.addEventListener('click', handleCellClick);
+        dom.resetButton.addEventListener('click', () => startGame(false));
+        dom.simulateButton.addEventListener('click', () => gameState.simulationActive ? stopSimulation() : startGame(true));
+        dom.modalCloseButton.addEventListener('click', () => dom.modal.classList.add('hidden'));
+
+        document.querySelectorAll('.tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                document.querySelectorAll('.tab').forEach(t => t.classList.remove('tab-active'));
+                tab.classList.add('tab-active');
+                const target = document.getElementById(`tab-content-${tab.id.split('-')[1]}`);
+                document.querySelectorAll('.tab-content').forEach(tc => tc.classList.remove('tab-content-active'));
+                target.classList.add('tab-content-active');
+            });
+        });
+
+        window.addEventListener('keydown', (e) => {
+            if (e.key.toLowerCase() === 'c' && !gameState.simulationActive && document.activeElement.tagName !== 'INPUT') {
+                gameState.cheatModeActive = !gameState.cheatModeActive;
+                showMessage(`Cheat mode ${gameState.cheatModeActive ? 'enabled' : 'disabled'}.`);
+                renderBoard();
+            }
+        });
+    }
+
+    // --- Let's begin ---
+    setupUI();
+    startGame(false);
+
+    </script>
+</body>
+</html>
