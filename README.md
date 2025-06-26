@@ -1,5 +1,7 @@
 # 🏰 Reveal Your Rank
 
+You can try game here [Play the game](https://machupicchu.lt/game-demo/).
+
 **Reveal Your Rank** is a browser-based tactical strategy game inspired by classic titles like *Stratego*. Players battle for control of the board by strategically positioning units, revealing ranks through combat, and capturing the opponent's castle.
 
 This project is built using **HTML**, **Vanilla JavaScript**, and **Tailwind CSS**, with optional sprite customization for a pixel-art or emoji-based experience.
